@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
 """
-Gemini MCP Server
+Gemini API Web Server
 
-This MCP server provides tools to interact with Google's Gemini API from Claude Desktop.
-Uses the Google Gemini API for AI conversations and responses.
+This converts the MCP server into a regular web API that can be deployed on Render.
 """
 
 import os
 import json
 import logging
-from typing import Optional, List, Dict, Any, Union
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from typing import Optional, Dict, List
 
 from dotenv import load_dotenv
 import google.generativeai as genai
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-
-from mcp.server.fastmcp import FastMCP, Context
-import uvicorn
 
 # Load environment variables
 load_dotenv()
@@ -52,41 +47,23 @@ AVAILABLE_MODELS = [
     "gemini-1.5-flash",
 ]
 
-# Initialize FastMCP server
-mcp = FastMCP(
-    "Gemini API",
-    dependencies=["google-generativeai", "python-dotenv", "httpx", "pydantic"],
-)
+# Store conversation history
+conversation_history: Dict[str, List[Dict[str, str]]] = {}
 
 
 class GeminiRequest(BaseModel):
     """Model for Gemini API request parameters"""
+    prompt: str = Field(description="The message to send to Gemini")
     model: str = Field(default=DEFAULT_MODEL, description="Gemini model name")
     temperature: float = Field(default=DEFAULT_TEMPERATURE, description="Temperature (0-2)", ge=0, le=2)
     max_output_tokens: int = Field(default=MAX_OUTPUT_TOKENS, description="Maximum tokens in response", ge=1)
     conversation_id: Optional[str] = Field(default=None, description="Optional conversation ID for chat history")
 
 
-@asynccontextmanager
-async def app_lifespan(server: FastMCP):
-    """Initialize and clean up application resources"""
-    logger.info("Gemini MCP Server starting up")
-    try:
-        yield {}
-    finally:
-        logger.info("Gemini MCP Server shutting down")
-
-
-# Resources
-
-@mcp.resource("gemini://models")
-def available_models() -> str:
-    """List available Gemini models"""
-    return json.dumps(AVAILABLE_MODELS, indent=2)
-
-
-# Store conversation history
-conversation_history: Dict[str, List[Dict[str, str]]] = {}
+class GeminiResponse(BaseModel):
+    """Model for Gemini API response"""
+    response: str
+    conversation_id: Optional[str] = None
 
 
 def get_conversation_history(conversation_id: str) -> List[Dict[str, str]]:
@@ -101,7 +78,6 @@ def add_to_conversation_history(conversation_id: str, role: str, content: str):
     conversation_history[conversation_id].append({"role": role, "content": content})
 
 
-# Helper function to format conversation for Gemini
 def format_conversation_for_gemini(history: List[Dict[str, str]], new_prompt: str) -> str:
     """Format conversation history for Gemini API"""
     formatted_conversation = ""
@@ -115,55 +91,52 @@ def format_conversation_for_gemini(history: List[Dict[str, str]], new_prompt: st
     return formatted_conversation
 
 
-# Tools
+# Initialize FastAPI - MOVED AFTER FUNCTION DEFINITIONS
+app = FastAPI(title="Gemini API Server", version="1.0.0")
 
-@mcp.tool()
-async def ask_gemini(
-    prompt: str,
-    model: str = DEFAULT_MODEL,
-    temperature: float = DEFAULT_TEMPERATURE,
-    max_output_tokens: int = MAX_OUTPUT_TOKENS,
-    conversation_id: Optional[str] = None,
-    ctx: Context = None,
-) -> str:
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {"message": "Gemini API Server", "models": AVAILABLE_MODELS}
+
+
+@app.get("/models")
+async def get_models():
+    """Get available models"""
+    return {"models": AVAILABLE_MODELS}
+
+
+@app.post("/ask", response_model=GeminiResponse)
+async def ask_gemini(request: GeminiRequest):
     """
     Send a prompt to Gemini and get a response
-    
-    Args:
-        prompt: The message to send to Gemini
-        model: The Gemini model to use (default: gemini-pro)
-        temperature: Sampling temperature (0-2, default: 0.7)
-        max_output_tokens: Maximum tokens in response (default: 1000)
-        conversation_id: Optional conversation ID for maintaining chat history
-    
-    Returns:
-        Gemini's response
     """
-    ctx.info(f"Calling Gemini with model: {model}")
+    logger.info(f"Calling Gemini with model: {request.model}")
     
     try:
         # Initialize the model
-        gemini_model = genai.GenerativeModel(model)
+        gemini_model = genai.GenerativeModel(request.model)
         
         # Configure generation parameters
         generation_config = genai.types.GenerationConfig(
-            temperature=temperature,
-            max_output_tokens=max_output_tokens,
+            temperature=request.temperature,
+            max_output_tokens=request.max_output_tokens,
         )
         
         # Handle conversation history if conversation_id is provided
-        if conversation_id:
-            history = get_conversation_history(conversation_id)
+        if request.conversation_id:
+            history = conversation_history.get(request.conversation_id, [])
             if history:
                 # Format the conversation with history
-                formatted_prompt = format_conversation_for_gemini(history, prompt)
+                formatted_prompt = format_conversation_for_gemini(history, request.prompt)
             else:
-                formatted_prompt = prompt
+                formatted_prompt = request.prompt
             
             # Add current message to history
-            add_to_conversation_history(conversation_id, "user", prompt)
+            add_to_conversation_history(request.conversation_id, "user", request.prompt)
         else:
-            formatted_prompt = prompt
+            formatted_prompt = request.prompt
         
         # Generate response
         response = gemini_model.generate_content(
@@ -175,100 +148,22 @@ async def ask_gemini(
         response_text = response.text
         
         # Store assistant response in history if conversation_id is provided
-        if conversation_id:
-            add_to_conversation_history(conversation_id, "assistant", response_text)
+        if request.conversation_id:
+            add_to_conversation_history(request.conversation_id, "assistant", response_text)
         
-        # Return response with conversation ID for reference
-        if conversation_id:
-            return f"{response_text}\n\n(Conversation ID: {conversation_id})"
-        else:
-            return response_text
+        return GeminiResponse(
+            response=response_text,
+            conversation_id=request.conversation_id
+        )
     
     except Exception as e:
         error_message = f"Error calling Gemini API: {str(e)}"
         logger.error(error_message)
-        return error_message
-
-
-@mcp.tool()
-async def ask_gemini_with_search(
-    prompt: str,
-    model: str = "gemini-pro",  # Use gemini-pro for search capability
-    temperature: float = DEFAULT_TEMPERATURE,
-    max_output_tokens: int = MAX_OUTPUT_TOKENS,
-    conversation_id: Optional[str] = None,
-    ctx: Context = None,
-) -> str:
-    """
-    Send a prompt to Gemini with search capability enabled (uses Gemini Pro)
-    
-    Args:
-        prompt: The message to send to Gemini
-        model: The Gemini model to use (default: gemini-pro)
-        temperature: Sampling temperature (0-2, default: 0.7)
-        max_output_tokens: Maximum tokens in response (default: 1000)
-        conversation_id: Optional conversation ID for maintaining chat history
-    
-    Returns:
-        Gemini's response with search information
-    """
-    ctx.info(f"Calling Gemini with search capability using model: {model}")
-    
-    try:
-        # Initialize the model
-        gemini_model = genai.GenerativeModel(model)
-        
-        # Configure generation parameters
-        generation_config = genai.types.GenerationConfig(
-            temperature=temperature,
-            max_output_tokens=max_output_tokens,
-        )
-        
-        # Add search instruction to the prompt
-        search_enhanced_prompt = f"""Please search for current information and provide a comprehensive answer to this question: {prompt}
-
-Use your knowledge and any available search capabilities to provide accurate, up-to-date information."""
-        
-        # Handle conversation history if conversation_id is provided
-        if conversation_id:
-            history = get_conversation_history(conversation_id)
-            if history:
-                # Format the conversation with history
-                formatted_prompt = format_conversation_for_gemini(history, search_enhanced_prompt)
-            else:
-                formatted_prompt = search_enhanced_prompt
-            
-            # Add current message to history
-            add_to_conversation_history(conversation_id, "user", prompt)
-        else:
-            formatted_prompt = search_enhanced_prompt
-        
-        # Generate response
-        response = gemini_model.generate_content(
-            formatted_prompt,
-            generation_config=generation_config
-        )
-        
-        # Extract response text
-        response_text = response.text
-        
-        # Store assistant response in history if conversation_id is provided
-        if conversation_id:
-            add_to_conversation_history(conversation_id, "assistant", response_text)
-        
-        # Return response with conversation ID for reference
-        if conversation_id:
-            return f"{response_text}\n\n(Conversation ID: {conversation_id})"
-        else:
-            return response_text
-    
-    except Exception as e:
-        error_message = f"Error calling Gemini with search: {str(e)}"
-        logger.error(error_message)
-        return error_message
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 if __name__ == "__main__":
+    import uvicorn
     # Get port from environment (Render sets $PORT)
     port = int(os.environ.get("PORT", 8080))
     # Run the server
