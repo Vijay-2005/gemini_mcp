@@ -4,11 +4,11 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # Copy requirements file and install dependencies
-COPY requirements.txt ./
+COPY mcp-chatgpt-responses/requirements.txt ./
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy the rest of the application code
-COPY . .
+COPY mcp-chatgpt-responses/. ./
 
 # Expose port if necessary (not strictly required for stdio servers)
 
