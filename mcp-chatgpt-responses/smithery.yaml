@@ -1,0 +1,44 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    type: object
+    required:
+      - geminiApiKey
+    properties:
+      geminiApiKey:
+        type: string
+        default: ""
+        description: Your Google AI Studio API key
+      defaultModel:
+        type: string
+        default: gemini-pro
+        description: Default Gemini model to use
+      defaultTemperature:
+        type: number
+        default: 0.7
+        description: Temperature value for generation
+      maxOutputTokens:
+        type: number
+        default: 1000
+        description: Maximum number of tokens to generate
+  commandFunction:
+    # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
+    |-
+    (config) => ({
+      command: 'python',
+      args: ['gemini_server.py'],
+      env: {
+        GEMINI_API_KEY: config.geminiApiKey,
+        DEFAULT_MODEL: config.defaultModel,
+        DEFAULT_TEMPERATURE: config.defaultTemperature.toString(),
+        MAX_OUTPUT_TOKENS: config.maxOutputTokens.toString()
+      }
+    })
+  exampleConfig:
+    geminiApiKey: your-gemini-api-key-here
+    defaultModel: gemini-pro
+    defaultTemperature: 0.7
+    maxOutputTokens: 1000
