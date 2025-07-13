@@ -267,7 +267,14 @@ Use your knowledge and any available search capabilities to provide accurate, up
 
 
 if __name__ == "__main__":
-    # Get port from environment (Render sets $PORT)
-    port = int(os.environ.get("PORT", 8080))
-    # Run the server on the specified port
-    mcp.run(transport='streamable-http')
+    # For MCP servers, we need to run with proper transport
+    # This should be run locally and connected to Claude Desktop
+    # NOT deployed on Render
+    try:
+        # Run as MCP server with stdio transport (for local Claude Desktop)
+        mcp.run(transport='stdio')
+    except Exception as e:
+        logger.error(f"Error running MCP server: {e}")
+        # Fallback to streamable-http for development/testing
+        port = int(os.environ.get("PORT", 8080))
+        mcp.run(transport='streamable-http', port=port)
