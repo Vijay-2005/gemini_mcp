@@ -34,7 +34,9 @@ startCommand:
         GEMINI_API_KEY: config.geminiApiKey,
         DEFAULT_MODEL: config.defaultModel,
         DEFAULT_TEMPERATURE: config.defaultTemperature.toString(),
-        MAX_OUTPUT_TOKENS: config.maxOutputTokens.toString()
+        MAX_OUTPUT_TOKENS: config.maxOutputTokens.toString(),
+        SMITHERY_MCP: 'true',  // Signal to use stdio transport
+        MCP_TRANSPORT: 'stdio'
       }
     })
   exampleConfig:
