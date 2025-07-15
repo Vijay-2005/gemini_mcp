@@ -10,8 +10,5 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy the rest of the application code
 COPY . ./
 
-# Expose port for the FastAPI server
-EXPOSE 8080
-
 # Command to run the MCP server
 CMD ["python", "gemini_server.py"]

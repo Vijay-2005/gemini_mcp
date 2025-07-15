@@ -1,7 +1,7 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 
 startCommand:
-  type: http
+  type: stdio
   configSchema:
     # JSON Schema defining the configuration options for the MCP.
     type: object
@@ -24,12 +24,8 @@ startCommand:
         type: number
         default: 1000
         description: Maximum number of tokens to generate
-      port:
-        type: number
-        default: 8080
-        description: Port number for the HTTP server
   commandFunction:
-    # A JS function that produces the CLI command based on the given config to start the MCP on http.
+    # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
     |-
     (config) => ({
       command: 'python',
@@ -38,14 +34,11 @@ startCommand:
         GEMINI_API_KEY: config.geminiApiKey,
         DEFAULT_MODEL: config.defaultModel,
         DEFAULT_TEMPERATURE: config.defaultTemperature.toString(),
-        MAX_OUTPUT_TOKENS: config.maxOutputTokens.toString(),
-        PORT: config.port.toString()
-      },
-      baseUrl: `http://localhost:${config.port}`
+        MAX_OUTPUT_TOKENS: config.maxOutputTokens.toString()
+      }
     })
   exampleConfig:
     geminiApiKey: your-gemini-api-key-here
     defaultModel: gemini-pro
     defaultTemperature: 0.7
     maxOutputTokens: 1000
-    port: 8080

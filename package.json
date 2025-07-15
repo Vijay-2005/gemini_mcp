@@ -1,0 +1,15 @@
+{
+  "name": "gemini-mcp",
+  "version": "1.0.0",
+  "description": "Gemini API MCP server for Claude",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "npx @smithery/cli@latest deploy"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.2.0"
+  },
+  "devDependencies": {
+    "@smithery/cli": "latest"
+  }
+} 

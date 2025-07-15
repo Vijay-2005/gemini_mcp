@@ -1,0 +1,80 @@
+[
+  {
+    "name": "ask_gemini",
+    "description": "Send a prompt to Gemini and get a response",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "title": "Prompt",
+          "type": "string",
+          "description": "The message to send to Gemini"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string",
+          "default": "gemini-pro",
+          "description": "Gemini model name (gemini-pro, gemini-1.5-pro, gemini-1.5-flash, etc.)"
+        },
+        "temperature": {
+          "title": "Temperature",
+          "type": "number",
+          "default": 0.7,
+          "description": "Temperature value for generation (0-2)"
+        },
+        "max_output_tokens": {
+          "title": "Max Output Tokens",
+          "type": "integer",
+          "default": 1000,
+          "description": "Maximum number of tokens to generate"
+        },
+        "conversation_id": {
+          "title": "Conversation ID",
+          "type": "string",
+          "default": null,
+          "description": "Optional conversation ID for chat history"
+        }
+      },
+      "required": ["prompt"]
+    }
+  },
+  {
+    "name": "ask_gemini_with_web_search",
+    "description": "Send a prompt to Gemini with enhanced search instructions",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "title": "Prompt",
+          "type": "string",
+          "description": "The message to send to Gemini"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string",
+          "default": "gemini-pro",
+          "description": "Gemini model name (gemini-pro, gemini-1.5-pro, gemini-1.5-flash, etc.)"
+        },
+        "temperature": {
+          "title": "Temperature",
+          "type": "number",
+          "default": 0.7,
+          "description": "Temperature value for generation (0-2)"
+        },
+        "max_output_tokens": {
+          "title": "Max Output Tokens",
+          "type": "integer",
+          "default": 1000,
+          "description": "Maximum number of tokens to generate"
+        },
+        "conversation_id": {
+          "title": "Conversation ID",
+          "type": "string",
+          "default": null,
+          "description": "Optional conversation ID for chat history"
+        }
+      },
+      "required": ["prompt"]
+    }
+  }
+] 

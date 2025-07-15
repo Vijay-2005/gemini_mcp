@@ -17,38 +17,45 @@ This MCP server allows you to access Google's Gemini API directly from Claude De
 
 ### Installing via Smithery
 
-To install Gemini Server for Claude Desktop automatically via [Smithery](https://smithery.ai):
+To install Gemini Server for Claude Desktop via [Smithery](https://smithery.ai):
 
 ```bash
-# Manual installation required - see below
+# Install dependencies
+npm install
+
+# Deploy to Smithery
+npm run deploy
+```
+
+After deployment, you should be able to access your MCP server at:
+```
+https://smithery.ai/server/@YOUR_USERNAME/gemini_mcp/mcp/manifest
 ```
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- [Claude Desktop](https://claude.ai/download) application
+- Node.js 18+ (for Smithery deployment)
 - [Google AI Studio API key](https://aistudio.google.com/app/apikey)
-- [uv](https://github.com/astral-sh/uv) for Python package management
+- [Claude Desktop](https://claude.ai/download) application
 
-### Installation
+### Installation for Local Development
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/your-username/mcp-gemini-responses.git
-   cd mcp-gemini-responses
+   git clone https://github.com/your-username/gemini_mcp.git
+   cd gemini_mcp
    ```
 
-2. Set up a virtual environment and install dependencies using uv:
+2. Install dependencies:
    ```bash
-   uv venv
+   npm install
    ```
 
+3. Set your Gemini API key in the Smithery dashboard or through the config file.
+
+4. Deploy to Smithery:
    ```bash
-   .venv\\Scripts\\activate
-   ```
-   
-   ```bash
-   uv pip install -r requirements.txt
+   npm run deploy
    ```
 
 ### Using with Claude Desktop
@@ -56,32 +63,14 @@ To install Gemini Server for Claude Desktop automatically via [Smithery](https:/
 1. Configure Claude Desktop to use this MCP server by following the instructions at:
    [MCP Quickstart Guide](https://modelcontextprotocol.io/quickstart/user#2-add-the-filesystem-mcp-server)
 
-2. Add the following configuration to your Claude Desktop config file (adjust paths as needed):
-   ```json
-   {
-     "mcpServers": {
-       "gemini": {
-         "command": "uv",
-         "args": [
-           "--directory",
-           "\\path\\to\\mcp-gemini-responses",
-           "run",
-           "gemini_server.py"
-         ],
-         "env": {
-           "GEMINI_API_KEY": "your-api-key-here",
-           "DEFAULT_MODEL": "gemini-pro",
-           "DEFAULT_TEMPERATURE": "0.7",
-           "MAX_OUTPUT_TOKENS": "1000"
-         }
-       }
-     }
-   }
-   ```
+2. Add the following configuration to your Claude Desktop settings:
+   - Name: Gemini
+   - URL: https://smithery.ai/server/@YOUR_USERNAME/gemini_mcp
+   - API Key: your-gemini-api-key-here
 
 3. Restart Claude Desktop.
 
-4. You can now use the Gemini API through Claude by asking questions that mention Gemini or that Claude might not be able to answer.
+4. You can now use the Gemini API through Claude by asking questions that mention Gemini.
 
 ## Available Tools
 
@@ -89,7 +78,7 @@ The MCP server provides the following tools:
 
 1. `ask_gemini(prompt, model, temperature, max_output_tokens, conversation_id)` - Send a prompt to Gemini and get a response
 
-2. `ask_gemini_with_search(prompt, model, temperature, max_output_tokens, conversation_id)` - Send a prompt to Gemini with enhanced search instructions
+2. `ask_gemini_with_web_search(prompt, model, temperature, max_output_tokens, conversation_id)` - Send a prompt to Gemini with enhanced search instructions
 
 ## Example Usage
 
@@ -110,12 +99,12 @@ Note how the conversation_id allows maintaining conversation history for context
 
 For questions that may benefit from comprehensive information:
 ```
-Use the ask_gemini_with_search tool to answer: What are the latest developments in quantum computing?
+Use the ask_gemini_with_web_search tool to answer: What are the latest developments in quantum computing?
 ```
 
 Try search-enhanced responses for planning:
 ```
-Use the ask_gemini_with_search tool to find information about weather patterns and based on that, keep using the tool to build up a great day out for someone who loves food and parks
+Use the ask_gemini_with_web_search tool to find information about weather patterns and based on that, keep using the tool to build up a great day out for someone who loves food and parks
 ```
 
 ## How It Works
