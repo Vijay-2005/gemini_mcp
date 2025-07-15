@@ -3,12 +3,20 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Copy requirements file and install dependencies
+# Install dependencies first (for better caching)
 COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
-COPY . ./
+# Copy application code
+COPY . .
 
-# Command to run the MCP server
-CMD ["python", "gemini_server.py"]
+# Default port
+ENV PORT=8080
+
+# Make sure we listen on PORT environment variable 
+# (Smithery will set this during deployment)
+EXPOSE ${PORT}
+
+# Start the FastAPI server
+CMD ["sh", "-c", "python gemini_server.py"]

@@ -14,19 +14,9 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 import google.generativeai as genai
+from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-
-# Import FastMCP with lazy loading to avoid timeout during scanning
-try:
-    from fastmcp import FastMCP, Context
-except ImportError:
-    # Log the import error but continue execution
-    logging.error("Failed to import FastMCP. Make sure it's installed.")
-    # Define placeholder classes to avoid errors
-    class Context:
-        def info(self, message):
-            print(message)
-    FastMCP = None
 
 # Load environment variables
 load_dotenv()
@@ -39,16 +29,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("gemini_server")
 
-# Check for API key
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    raise ValueError("GEMINI_API_KEY environment variable is required")
-
-# Configure Gemini
-genai.configure(api_key=api_key)
-
 # Default settings
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-1.5-flash-8b")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-1.5-flash-8b") 
 DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
 MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "1000"))
 
@@ -60,29 +42,12 @@ AVAILABLE_MODELS = [
     "gemini-1.5-flash",
 ]
 
-# Initialize FastMCP server with lazy loading
-def initialize_mcp():
-    """Lazy initialization of FastMCP to avoid timeout during tool scanning"""
-    if FastMCP is None:
-        logger.error("FastMCP is not available. Please install fastmcp package.")
-        return None
-
-    try:
-        return FastMCP(
-            "Gemini API",
-            dependencies=["google-generativeai", "python-dotenv", "httpx", "pydantic"],
-            lazy_load=True  # Enable lazy loading to prevent timeout
-        )
-    except Exception as e:
-        logger.error(f"Failed to initialize FastMCP: {e}")
-        return None
-
-# Initialize MCP with lazy loading
-mcp = None
+# Store conversation history
+conversation_history: Dict[str, List[Dict[str, str]]] = {}
 
 class GeminiRequest(BaseModel):
     """Model for Gemini API request parameters"""
-
+    prompt: str = Field(description="The message to send to Gemini")
     model: str = Field(default=DEFAULT_MODEL, description="Gemini model name")
     temperature: float = Field(
         default=DEFAULT_TEMPERATURE, description="Temperature (0-2)", ge=0, le=2
@@ -94,17 +59,34 @@ class GeminiRequest(BaseModel):
         default=None, description="Optional conversation ID for chat history"
     )
 
+# User config model for API key
+class Config:
+    api_key: str = None
+    
+    def __init__(self):
+        # First check environment variables
+        self.api_key = os.getenv("GEMINI_API_KEY")
+
+config = Config()
+
+# Initialize FastAPI app with lifespan
 @asynccontextmanager
-async def app_lifespan(server):
+async def lifespan(app: FastAPI):
     """Initialize and clean up application resources"""
     logger.info("Gemini MCP Server starting up")
-    try:
-        yield {}
-    finally:
-        logger.info("Gemini MCP Server shutting down")
+    yield
+    logger.info("Gemini MCP Server shutting down")
 
-# Store conversation history
-conversation_history: Dict[str, List[Dict[str, str]]] = {}
+app = FastAPI(title="Gemini MCP Server", lifespan=lifespan)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def get_conversation_history(conversation_id: str) -> List[Dict[str, str]]:
     """Get conversation history for a given conversation ID"""
@@ -131,125 +113,171 @@ def format_conversation_for_gemini(
     formatted_conversation += f"User: {new_prompt}\n"
     return formatted_conversation
 
-# Define tool decorator for lazy loading
-def tool(func):
-    """Decorator for registering tools with lazy loading"""
-    if mcp is not None:
-        return mcp.tool()(func)
-    return func
+# Parse nested configuration from query params
+async def parse_config(request: Request):
+    """Parse configuration from query parameters using dot notation"""
+    query_params = dict(request.query_params)
+    parsed_config = {}
+    
+    for key, value in query_params.items():
+        if "." in key:
+            parts = key.split(".")
+            current = parsed_config
+            for part in parts[:-1]:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+            current[parts[-1]] = value
+        else:
+            parsed_config[key] = value
+    
+    # Update global config if API key is provided
+    if "apiKey" in parsed_config:
+        config.api_key = parsed_config["apiKey"]
+        # Configure Gemini with the provided API key
+        genai.configure(api_key=config.api_key)
+        
+    return parsed_config
 
-# Tools
-@tool
-async def ask_gemini(
-    prompt: str,
-    model: str = DEFAULT_MODEL,
-    temperature: float = DEFAULT_TEMPERATURE,
-    max_output_tokens: int = MAX_OUTPUT_TOKENS,
-    conversation_id: Optional[str] = None,
-    ctx: Context = None,
-) -> str:
-    """
-    Send a prompt to Gemini and get a response
+# MCP endpoint for tool manifest (no auth required for discovery)
+@app.get("/mcp/manifest")
+@app.post("/mcp/manifest")
+async def get_manifest(config_data: dict = Depends(parse_config)):
+    """Return the MCP manifest with available tools"""
+    # Define tools for manifest - no heavy initialization required
+    tools = [
+        {
+            "name": "ask_gemini",
+            "description": "Send a prompt to Gemini and get a response",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The message to send to Gemini"
+                    },
+                    "model": {
+                        "type": "string",
+                        "default": DEFAULT_MODEL,
+                        "description": "Gemini model name (gemini-pro, gemini-1.5-pro, etc.)"
+                    },
+                    "temperature": {
+                        "type": "number",
+                        "default": DEFAULT_TEMPERATURE,
+                        "description": "Temperature value for generation (0-2)"
+                    },
+                    "max_output_tokens": {
+                        "type": "integer",
+                        "default": MAX_OUTPUT_TOKENS,
+                        "description": "Maximum tokens in response"
+                    },
+                    "conversation_id": {
+                        "type": "string",
+                        "description": "Optional conversation ID for maintaining chat history"
+                    }
+                },
+                "required": ["prompt"]
+            }
+        }
+    ]
+    
+    return tools
 
-    Args:
-        prompt: The message to send to Gemini
-        model: The Gemini model to use (default: gemini-pro)
-        temperature: Sampling temperature (0-2, default: 0.7)
-        max_output_tokens: Maximum tokens in response (default: 1000)
-        conversation_id: Optional conversation ID for maintaining chat history
-
-    Returns:
-        Gemini's response
-    """
-    if ctx:
-        ctx.info(f"Calling Gemini with model: {model}")
-    else:
-        logger.info(f"Calling Gemini with model: {model}")
-
+# Tool endpoint for Gemini API
+@app.post("/mcp/run/ask_gemini")
+async def run_ask_gemini(request: Request, config_data: dict = Depends(parse_config)):
+    """Run the ask_gemini tool"""
+    # Verify API key is provided
+    if not config.api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+    
+    # Configure Gemini with the API key
+    genai.configure(api_key=config.api_key)
+    
     try:
-        # Initialize the model
-        gemini_model = genai.GenerativeModel(model)
+        # Parse request body
+        body = await request.json()
         
-        # Configure generation parameters
-        generation_config = genai.types.GenerationConfig(
-            temperature=temperature,
-            max_output_tokens=max_output_tokens,
-        )
+        # Extract parameters
+        prompt = body.get("prompt")
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Prompt is required")
+            
+        model = body.get("model", DEFAULT_MODEL)
+        temperature = body.get("temperature", DEFAULT_TEMPERATURE)
+        max_output_tokens = body.get("max_output_tokens", MAX_OUTPUT_TOKENS)
+        conversation_id = body.get("conversation_id")
         
-        # Handle conversation history if conversation_id is provided
-        if conversation_id:
-            history = get_conversation_history(conversation_id)
-            if history:
-                # Format the conversation with history
-                formatted_prompt = format_conversation_for_gemini(history, prompt)
+        logger.info(f"Calling Gemini with model: {model}")
+        
+        try:
+            # Initialize the model
+            gemini_model = genai.GenerativeModel(model)
+            
+            # Configure generation parameters
+            generation_config = genai.types.GenerationConfig(
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+            )
+            
+            # Handle conversation history if conversation_id is provided
+            if conversation_id:
+                history = get_conversation_history(conversation_id)
+                if history:
+                    # Format the conversation with history
+                    formatted_prompt = format_conversation_for_gemini(history, prompt)
+                else:
+                    formatted_prompt = prompt
+                
+                # Add current message to history
+                add_to_conversation_history(conversation_id, "user", prompt)
             else:
                 formatted_prompt = prompt
             
-            # Add current message to history
-            add_to_conversation_history(conversation_id, "user", prompt)
-        else:
-            formatted_prompt = prompt
-
-        # Generate response
-        response = gemini_model.generate_content(
-            formatted_prompt, generation_config=generation_config
-        )
-        
-        # Extract response text
-        response_text = response.text
-        
-        # Store assistant response in history if conversation_id is provided
-        if conversation_id:
-            add_to_conversation_history(conversation_id, "assistant", response_text)
-        
-        # Return response with conversation ID for reference
-        if conversation_id:
-            return f"{response_text}\n\n(Conversation ID: {conversation_id})"
-        else:
-            return response_text
+            # Generate response
+            response = gemini_model.generate_content(
+                formatted_prompt, generation_config=generation_config
+            )
+            
+            # Extract response text
+            response_text = response.text
+            
+            # Store assistant response in history if conversation_id is provided
+            if conversation_id:
+                add_to_conversation_history(conversation_id, "assistant", response_text)
+            
+            # Return response
+            return {"response": response_text, "conversation_id": conversation_id}
+            
+        except Exception as e:
+            error_message = f"Error calling Gemini API: {str(e)}"
+            logger.error(error_message)
+            raise HTTPException(status_code=500, detail=error_message)
     
     except Exception as e:
-        error_message = f"Error calling Gemini API: {str(e)}"
-        logger.error(error_message)
-        return error_message
+        logger.error(f"Error processing request: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
+
+# Root endpoint for health checks
+@app.get("/")
+@app.post("/")
+def root():
+    return {"status": "ok", "message": "Gemini API MCP Server", "models": AVAILABLE_MODELS}
+
+# MCP endpoint for health check
+@app.get("/mcp")
+@app.post("/mcp")
+@app.delete("/mcp")
+async def mcp_root(config_data: dict = Depends(parse_config)):
+    """Root MCP endpoint"""
+    return {"status": "ok", "message": "Gemini MCP API ready"}
 
 if __name__ == "__main__":
-    # Initialize MCP only when directly running the script
-    mcp = initialize_mcp()
+    import uvicorn
     
-    if mcp is not None:
-        # Register resource for available models
-        @mcp.resource("gemini://models")
-        def available_models() -> str:
-            """List available Gemini models"""
-            return json.dumps(AVAILABLE_MODELS, indent=2)
-        
-        # Register the ask_gemini tool
-        @mcp.tool()
-        async def ask_gemini_registered(
-            prompt: str,
-            model: str = DEFAULT_MODEL,
-            temperature: float = DEFAULT_TEMPERATURE,
-            max_output_tokens: int = MAX_OUTPUT_TOKENS,
-            conversation_id: Optional[str] = None,
-            ctx: Context = None,
-        ) -> str:
-            return await ask_gemini(prompt, model, temperature, max_output_tokens, conversation_id, ctx)
-            
-        # Run the server with streamable-http
-        # Using a different port than 8080 to avoid conflicts
-        transport = os.getenv("MCP_TRANSPORT", "streamable-http")
-        
-        # For Smithery compatibility, use stdio transport when specified
-        if os.getenv("SMITHERY_MCP") == "true":
-            transport = "stdio"
-        
-        port = int(os.getenv("PORT", "8821"))
-        host = os.getenv("HOST", "0.0.0.0")
-        
-        logger.info(f"Starting Gemini MCP Server with {transport} transport on {host}:{port}")
-        
-        if transport == "stdio":
-            mcp.run(transport="stdio")
-        else:
-            mcp.run(transport=transport, host=host, port=port)
+    # Get port from environment (Smithery sets $PORT)
+    port = int(os.environ.get("PORT", 8080))
+    host = os.environ.get("HOST", "0.0.0.0")
+    
+    logger.info(f"Starting Gemini MCP Server on {host}:{port}")
+    uvicorn.run(app, host=host, port=port)
