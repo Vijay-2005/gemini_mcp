@@ -4,13 +4,14 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # Copy requirements file and install dependencies
-COPY mcp-chatgpt-responses/requirements.txt ./
+COPY requirements.txt ./
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy the rest of the application code
-COPY mcp-chatgpt-responses/. ./
+COPY . ./
 
-# Expose port if necessary (not strictly required for stdio servers)
+# Expose port for the FastAPI server
+EXPOSE 8080
 
 # Command to run the MCP server
 CMD ["python", "gemini_server.py"]
